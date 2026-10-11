@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PNG Fighter — Arena</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@6.49.0/babylon.min.js"></script>
+<style>
+  :root{
+    --bg:#070a12;
+    --panel:#0d1220e6;
+    --line:#1f2a44;
+    --gold:#f2c14e;
+    --hp-hi:#3ee6a0;
+    --hp-mid:#f2c14e;
+    --hp-lo:#ff4d5e;
+    --text:#e8ecf7;
+    --sub:#7c8aad;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+    box-sizing:border-box;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;font-family:'Rajdhani',sans-serif;color:var(--text);}
+  #canvas{width:100%;height:100%;display:block;touch-action:none;}
+  #hud{
+    position:fixed;top:calc(18px + env(safe-area-inset-top,0px));left:18px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;min-width:220px;backdrop-filter:blur(6px);
+    box-shadow:0 8px 30px rgba(0,0,0,.5);
+  }
+  #hud h1{
+    font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:.04em;
+    margin:0 0 2px 0;font-weight:900;color:var(--gold);
+  }
+  #hud .sub{font-size:12px;color:var(--sub);margin-bottom:14px;}
+  .row{display:flex;gap:8px;margin-bottom:8px;}
+  button{
+    font-family:'Rajdhani',sans-serif;font-weight:700;font-size:14px;
+    background:linear-gradient(180deg,#1a2338,#121a2c);color:var(--text);
+    border:1px solid var(--line);border-radius:7px;padding:9px 14px;
+    cursor:pointer;flex:1;transition:transform .08s ease, border-color .15s ease;
+  }
+  button:hover{border-color:var(--gold);}
+  button:active{transform:scale(.96);}
+  button.danger:hover{border-color:var(--hp-lo);}
+  #count{font-size:13px;color:var(--sub);margin-top:4px;}
+  #count b{color:var(--text);}
+  #leaderboard{
+    position:fixed;top:calc(18px + env(safe-area-inset-top,0px));right:18px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;min-width:220px;backdrop-filter:blur(6px);
+    box-shadow:0 8px 30px rgba(0,0,0,.5);
+  }
+  #leaderboard h1{font-size:14px;margin-bottom:10px;}
+  #lbHead, .lbRow{display:grid;grid-template-columns:22px 1fr 44px 52px;gap:6px;font-size:12.5px;}
+  #lbHead{color:var(--sub);margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:6px;}
+  .lbRow{padding:3px 0;color:var(--text);}
+  .lbRow span:nth-child(3), .lbRow span:nth-child(4), #lbHead span:nth-child(3), #lbHead span:nth-child(4){text-align:right;}
+  .lbRow span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="hud">
+  <h1>PNG FIGHTER</h1>
+  <div id="count">Kämpfer: <b id="countNum">0</b></div>
+</div>
+<div id="leaderboard" style="display:none">
+  <h1>RANGLISTE</h1>
+  <div id="lbHead"><span>#</span><span>Name</span><span>Kills</span><span>Zeit</span></div>
+  <div id="lbList"></div>
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.027, 0.039, 0.07, 1);
+
+// ---- Camera & Light ----
+const camera = new BABYLON.ArcRotateCamera("cam", Math.PI/2, 1.05, 26, new BABYLON.Vector3(0,1,0), scene);
+camera.lowerRadiusLimit = 14; camera.upperRadiusLimit = 34;
+camera.attachControl(canvas, true);
+camera.wheelPrecision = 40;
+
+const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
+hemi.intensity = 0.55; hemi.diffuse = new BABYLON.Color3(0.7,0.75,1);
+const rim = new BABYLON.PointLight("rim", new BABYLON.Vector3(0,10,-10), scene);
+rim.intensity = 0.6; rim.diffuse = new BABYLON.Color3(0.4,0.7,1);
+
+// ---- Arena floor (schwebende Plattform) ----
+const arenaR = 9;
+const floor = BABYLON.MeshBuilder.CreateCylinder("floor", { diameter: arenaR*2, height: 0.5, tessellation: 48 }, scene);
+floor.position.y = -0.25; // Oberflaeche bleibt bei y=0, wie zuvor
+const floorMat = new BABYLON.StandardMaterial("floorMat", scene);
+floorMat.diffuseColor = new BABYLON.Color3(0.05,0.07,0.12);
+floorMat.specularColor = new BABYLON.Color3(0.1,0.1,0.15);
+floor.material = floorMat;
+
+// schroffe Unterseite -> verkauft den "schwebende Insel"-Look, nur 1 zusaetzliches Mesh
+const underside = BABYLON.MeshBuilder.CreateCylinder("underside", { diameterTop: arenaR*1.5, diameterBottom: 0, height: 3.4, tessellation: 7 }, scene);
+underside.position.y = -0.25 - 1.7;
+const undersideMat = new BABYLON.StandardMaterial("undersideMat", scene);
+undersideMat.diffuseColor = new BABYLON.Color3(0.04,0.05,0.09);
+undersideMat.specularColor = BABYLON.Color3.Black();
+underside.material = undersideMat;
+
+// glowing ring
+const ring = BABYLON.MeshBuilder.CreateTorus("ring", { diameter: arenaR*2, thickness: 0.08, tessellation: 96 }, scene);
+ring.position.y = 0.01; ring.rotation.x = 0;
+const ringMat = new BABYLON.StandardMaterial("ringMat", scene);
+ringMat.emissiveColor = new BABYLON.Color3(0.95,0.76,0.31);
+ringMat.diffuseColor = BABYLON.Color3.Black();
+ring.material = ringMat;
+
+// faint arena floor markings (kein Orbit-Look, nur dezente Bodenlinien)
+const crossLen = arenaR*0.9;
+["x","z"].forEach((axis,i)=>{
+  const line = BABYLON.MeshBuilder.CreateBox("line"+axis, { width: axis==="x"?crossLen*2:0.02, height:0.01, depth: axis==="x"?0.02:crossLen*2 }, scene);
+  line.position.y = 0.006;
+  const lm = new BABYLON.StandardMaterial("lm"+axis, scene);
+  lm.emissiveColor = new BABYLON.Color3(0.12,0.16,0.28);
+  lm.diffuseColor = BABYLON.Color3.Black();
+  line.material = lm;
+});
+
+// ---- Bergkulisse rund um die Arena (gleicher dunkler Stil, per Nebel eingebettet) ----
+scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+scene.fogColor = new BABYLON.Color3(0.027, 0.039, 0.07);
+scene.fogDensity = 0.032;
+
+const mountainMat = new BABYLON.StandardMaterial("mountainMat", scene);
+mountainMat.diffuseColor = new BABYLON.Color3(0.05, 0.07, 0.12);
+mountainMat.emissiveColor = new BABYLON.Color3(0.05, 0.09, 0.17);
+mountainMat.specularColor = BABYLON.Color3.Black();
+
+const peakMat = new BABYLON.StandardMaterial("peakMat", scene);
+peakMat.diffuseColor = BABYLON.Color3.Black();
+peakMat.emissiveColor = new BABYLON.Color3(0.6, 0.48, 0.2);
+peakMat.specularColor = BABYLON.Color3.Black();
+
+const MOUNTAIN_COUNT = 18;
+for (let i=0;i<MOUNTAIN_COUNT;i++){
+  const ang = (i/MOUNTAIN_COUNT)*Math.PI*2 + (Math.random()-0.5)*0.25;
+  const dist = 15 + Math.random()*9;
+  const h = 4.5 + Math.random()*7.5;
+  const r = 2.5 + Math.random()*3.2;
+  const floatOffset = 1.2 + Math.random()*3.5; // laesst die Berge im Nebel schweben statt am Boden zu stehen
+  const peak = BABYLON.MeshBuilder.CreateCylinder("mtn"+i, { diameterTop: 0, diameterBottom: r*2, height: h, tessellation: 5 + Math.floor(Math.random()*3) }, scene);
+  peak.position.set(Math.cos(ang)*dist, h/2 - 0.4 + floatOffset, Math.sin(ang)*dist);
+  peak.rotation.y = Math.random()*Math.PI;
+  peak.material = mountainMat;
+
+  // leicht erleuchtete Spitze, passend zum Gold-Akzent der Arena
+  if (Math.random() < 0.4){
+    const tip = BABYLON.MeshBuilder.CreateCylinder("tip"+i, { diameterTop: 0, diameterBottom: r*0.5, height: h*0.22, tessellation: 6 }, scene);
+    tip.position.set(peak.position.x, peak.position.y + h/2 - 0.2, peak.position.z);
+    tip.rotation.y = peak.rotation.y;
+    tip.material = peakMat;
+  }
+}
+
+// ---- Avatar palette (stand-in for YouTube profile pics) ----
+const PALETTE = ["#ff5470","#f2c14e","#ff9a3c","#ff6fb0","#3ee6a0","#4ea8ff","#b57bff","#3ecfe6"];
+const NAMES = ["StreamKing","PixelPia","ChatMod99","NoobSlayer","ViewerX","RetroFan","LagKing","GG_Wave","ClipQueen","ByteRaid"];
+let nameIdx = 0;
+
+function makeAvatarTexture(color, initials){
+  const size = 256;
+  const dt = new BABYLON.DynamicTexture("avatar", size, scene, true);
+  const ctx = dt.getContext();
+  ctx.clearRect(0,0,size,size);
+  ctx.beginPath();
+  ctx.arc(size/2,size/2,size/2-6,0,Math.PI*2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 10; ctx.strokeStyle = "#0a0e18"; ctx.stroke();
+  ctx.fillStyle = "#0a0e18";
+  ctx.font = "bold 96px Orbitron, sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(initials, size/2, size/2+8);
+  dt.update();
+  return dt;
+}
+
+// ---- Sound: satisfying Treffer-"Flap" (synthetisiert, keine externe Datei) ----
+let audioCtx = null;
+function ensureAudio(){
+  if (!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+
+function playHitSound(){
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const pitch = 0.88 + Math.random()*0.3;
+
+  // tiefer "Thump"
+  const osc = audioCtx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(170*pitch, t);
+  osc.frequency.exponentialRampToValueAtTime(48*pitch, t+0.1);
+  const oscGain = audioCtx.createGain();
+  oscGain.gain.setValueAtTime(0.55, t);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, t+0.13);
+  osc.connect(oscGain).connect(audioCtx.destination);
+  osc.start(t); osc.stop(t+0.14);
+
+  // kurzer Noise-"Flap" obendrauf
+  const bufSize = Math.floor(audioCtx.sampleRate*0.05);
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i=0;i<bufSize;i++) data[i] = (Math.random()*2-1) * (1 - i/bufSize);
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buf;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = "bandpass"; bp.frequency.value = 900*pitch; bp.Q.value = 0.7;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.setValueAtTime(0.4, t);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t+0.06);
+  noise.connect(bp).connect(noiseGain).connect(audioCtx.destination);
+  noise.start(t);
+}
+
+// ---- Rangliste: Kills & Ueberlebenszeit ----
+let leaderboardEnabled = false;
+const leaderboardEntries = [];
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function renderLeaderboard(){
+  if (!leaderboardEnabled) return;
+  const rows = leaderboardEntries.map(e => ({
+    name: e.name,
+    kills: e.kills,
+    seconds: e.alive ? (performance.now() - e.spawnTime)/1000 : e.finalSeconds
+  })).sort((a,b) => b.kills - a.kills || b.seconds - a.seconds).slice(0,8);
+  document.getElementById("lbList").innerHTML = rows.map((r,i) =>
+    `<div class="lbRow"><span>${i+1}.</span><span>${escapeHtml(r.name)}</span><span>${r.kills}</span><span>${r.seconds.toFixed(0)}s</span></div>`
+  ).join("");
+}
+setInterval(renderLeaderboard, 500);
+
+// ---- Fighters ----
+const fighters = [];
+let alive = 0;
+
+function updateCount(){ document.getElementById("countNum").textContent = alive; }
+
+function makeHealthBarTexture(pct){
+  const w=128,h=20;
+  const dt = new BABYLON.DynamicTexture("hp", {width:w,height:h}, scene, true);
+  const ctx = dt.getContext();
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle = "#0a0e18cc"; ctx.fillRect(0,0,w,h);
+  const color = pct>0.5?"#3ee6a0":pct>0.25?"#f2c14e":"#ff4d5e";
+  ctx.fillStyle = color; ctx.fillRect(2,2,(w-4)*Math.max(pct,0),h-4);
+  ctx.strokeStyle="#1f2a44"; ctx.strokeRect(0.5,0.5,w-1,h-1);
+  dt.hasAlpha = true;
+  dt.update();
+  return dt;
+}
+
+function spawnFighter(opts){
+  opts = opts || {};
+  const color = PALETTE[Math.floor(Math.random()*PALETTE.length)];
+  let name = opts.name || null;
+  if (!name){
+    name = NAMES[nameIdx % NAMES.length] + (nameIdx>=NAMES.length ? (Math.floor(nameIdx/NAMES.length)+1):"");
+    nameIdx++;
+  }
+  const customImage = opts.image || null;
+  const initials = name.slice(0,2).toUpperCase();
+
+  const root = new BABYLON.TransformNode("fighter"+fighters.length, scene);
+  const angle = Math.random()*Math.PI*2;
+  const dist = Math.random()*arenaR*0.7;
+  root.position = new BABYLON.Vector3(Math.cos(angle)*dist, 0, Math.sin(angle)*dist);
+
+  // Sockel (grüner Standfuß)
+  const base = BABYLON.MeshBuilder.CreateCylinder("base", { diameterTop: 0.95, diameterBottom: 1.15, height: 0.5, tessellation: 24 }, scene);
+  base.position.y = 0.25; base.parent = root;
+  const baseMat = new BABYLON.StandardMaterial("baseMat", scene);
+  baseMat.diffuseColor = new BABYLON.Color3(0.12, 0.55, 0.2);
+  baseMat.emissiveColor = new BABYLON.Color3(0.06, 0.28, 0.1);
+  base.material = baseMat;
+
+  // rundes Plane fuer das (spaeter hochladbare) Profilbild
+  const avatarSize = 1.1;
+  const head = BABYLON.MeshBuilder.CreatePlane("head", { size: avatarSize }, scene);
+  head.position.y = 0.5 + avatarSize/2; head.parent = root;
+  head.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+  const headMat = new BABYLON.StandardMaterial("headMat", scene);
+  headMat.diffuseTexture = customImage
+    ? new BABYLON.Texture(customImage, scene)
+    : makeAvatarTexture(color, initials);
+  headMat.diffuseTexture.hasAlpha = true;
+  headMat.useAlphaFromDiffuseTexture = true;
+  headMat.emissiveColor = new BABYLON.Color3(0.5,0.5,0.5);
+  headMat.backFaceCulling = false;
+  head.material = headMat;
+
+  const hpPlane = BABYLON.MeshBuilder.CreatePlane("hpbar", { width: 1.1, height: 0.17 }, scene);
+  hpPlane.position.y = 0.5 + avatarSize + 0.18; hpPlane.parent = root;
+  hpPlane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+  const hpMat = new BABYLON.StandardMaterial("hpMat", scene);
+  hpMat.diffuseTexture = makeHealthBarTexture(1);
+  hpMat.diffuseTexture.hasAlpha = true;
+  hpMat.useAlphaFromDiffuseTexture = true;
+  hpMat.emissiveColor = new BABYLON.Color3(1,1,1);
+  hpMat.disableLighting = true;
+  hpPlane.material = hpMat;
+
+  const namePlane = BABYLON.MeshBuilder.CreatePlane("namebar", { width: 1.3, height: 0.28 }, scene);
+  namePlane.position.y = 0.5 + avatarSize + 0.45; namePlane.parent = root;
+  namePlane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+  const ndt = new BABYLON.DynamicTexture("ndt", {width:256,height:56}, scene, true);
+  const nctx = ndt.getContext();
+  nctx.clearRect(0,0,256,56);
+  nctx.font = "600 34px Rajdhani, sans-serif";
+  nctx.fillStyle = "#e8ecf7"; nctx.textAlign="center"; nctx.textBaseline="middle";
+  nctx.fillText(name, 128, 30);
+  ndt.hasAlpha = true; ndt.update();
+  const nameMat = new BABYLON.StandardMaterial("nameMat", scene);
+  nameMat.diffuseTexture = ndt; nameMat.useAlphaFromDiffuseTexture = true;
+  nameMat.emissiveColor = new BABYLON.Color3(1,1,1); nameMat.disableLighting = true;
+  namePlane.material = nameMat;
+
+  const entry = { name, kills: 0, alive: true, spawnTime: performance.now(), finalSeconds: 0 };
+  leaderboardEntries.push(entry);
+
+  const f = {
+    root, base, hpPlane, hpMat, name, entry,
+    hp: 100, maxHp: 100,
+    speed: 1.0 + Math.random()*0.7,
+    wanderSpeed: 0.5 + Math.random()*0.4,
+    damage: ATTACK_DAMAGE_BASE * (0.75 + Math.random()*0.5),
+    attackCooldown: ATTACK_COOLDOWN_BASE * (0.85 + Math.random()*0.3),
+    cooldown: 0,
+    target: null,
+    alive: true,
+    wanderAngle: Math.random()*Math.PI*2,
+    wanderTimer: Math.random()*2
+  };
+  fighters.push(f);
+  alive++;
+  updateCount();
+}
+
+function clearArena(){
+  fighters.forEach(f => f.root.dispose(false, true));
+  fighters.length = 0;
+  alive = 0;
+  updateCount();
+  // wichtig: sonst laeuft die Ueberlebenszeit von Kaempfern, die nicht im Kampf
+  // gestorben sind (sondern per "Arena leeren" entfernt wurden), in der Rangliste ewig weiter
+  leaderboardEntries.length = 0;
+  renderLeaderboard();
+}
+
+// ---- Attack effect ----
+function attackEffect(pos){
+  const ps = new BABYLON.ParticleSystem("spark", 60, scene);
+  ps.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", scene);
+  ps.emitter = pos.clone();
+  ps.minEmitBox = new BABYLON.Vector3(-0.1,-0.1,-0.1);
+  ps.maxEmitBox = new BABYLON.Vector3(0.1,0.1,0.1);
+  ps.color1 = new BABYLON.Color4(1,0.8,0.3,1);
+  ps.color2 = new BABYLON.Color4(1,0.3,0.2,1);
+  ps.colorDead = new BABYLON.Color4(0.5,0,0,0);
+  ps.minSize = 0.12; ps.maxSize = 0.3;
+  ps.minLifeTime = 0.15; ps.maxLifeTime = 0.35;
+  ps.emitRate = 400;
+  ps.direction1 = new BABYLON.Vector3(-1,1,-1);
+  ps.direction2 = new BABYLON.Vector3(1,2,1);
+  ps.minEmitPower = 2; ps.maxEmitPower = 4;
+  ps.gravity = new BABYLON.Vector3(0,-6,0);
+  ps.start();
+  setTimeout(()=>{ ps.stop(); setTimeout(()=>ps.dispose(), 500); }, 90);
+}
+
+function killFighter(f){
+  f.alive = false;
+  f.entry.alive = false;
+  f.entry.finalSeconds = (performance.now() - f.entry.spawnTime)/1000;
+  alive = Math.max(0, alive-1);
+  updateCount();
+  const start = f.root.position.clone();
+  let t = 0;
+  const obs = scene.onBeforeRenderObservable.add(()=>{
+    t += engine.getDeltaTime()/1000;
+    f.root.position.y = -t*1.5;
+    f.root.getChildren().forEach(c=>{ if(c.material) c.material.alpha = Math.max(0, 1 - t*1.3); });
+    if (t > 1.2){
+      scene.onBeforeRenderObservable.remove(obs);
+      f.root.dispose(false, true);
+      const idx = fighters.indexOf(f);
+      if (idx>=0) fighters.splice(idx,1);
+    }
+  });
+}
+
+// ---- AI loop ----
+const SETTINGS = {
+  attackRange: 1.6,
+  detectRange: 4.2,
+  speedMul: 1,
+  damageMul: 1
+};
+const ATTACK_DAMAGE_BASE = 9;
+const ATTACK_COOLDOWN_BASE = 1.1;
+
+scene.onBeforeRenderObservable.add(()=>{
+  const dt = engine.getDeltaTime()/1000;
+  const living = fighters.filter(f=>f.alive);
+
+  living.forEach(f=>{
+    if (f.cooldown>0) f.cooldown -= dt;
+
+    // pick nearest enemy
+    let nearest = null, nearestD = Infinity;
+    living.forEach(o=>{
+      if (o===f || !o.alive) return;
+      const d = BABYLON.Vector3.Distance(f.root.position, o.root.position);
+      if (d < nearestD){ nearestD = d; nearest = o; }
+    });
+
+    if (nearest && nearestD <= SETTINGS.detectRange && nearestD > SETTINGS.attackRange){
+      // Gegner in Sichtweite -> direkt angreifen (Kampfphase)
+      const dir = nearest.root.position.subtract(f.root.position);
+      dir.y = 0;
+      dir.normalize();
+      f.root.position.x += dir.x * f.speed * SETTINGS.speedMul * dt;
+      f.root.position.z += dir.z * f.speed * SETTINGS.speedMul * dt;
+      f.root.rotation.y = Math.atan2(dir.x, dir.z);
+    } else if (nearest && nearestD <= SETTINGS.attackRange){
+      f.root.rotation.y = Math.atan2(nearest.root.position.x-f.root.position.x, nearest.root.position.z-f.root.position.z);
+    } else {
+      // kein Gegner in Reichweite -> zufaellig umherlaufen (Random Walk)
+      f.wanderTimer -= dt;
+      if (f.wanderTimer <= 0){
+        f.wanderAngle += (Math.random()-0.5) * Math.PI * 1.4;
+        f.wanderTimer = 1 + Math.random()*2;
+      }
+      const wx = Math.sin(f.wanderAngle), wz = Math.cos(f.wanderAngle);
+      f.root.position.x += wx * f.wanderSpeed * SETTINGS.speedMul * dt;
+      f.root.position.z += wz * f.wanderSpeed * SETTINGS.speedMul * dt;
+      f.root.rotation.y = f.wanderAngle;
+    }
+
+    if (nearest && nearestD <= SETTINGS.attackRange){
+      if (f.cooldown<=0){
+        f.cooldown = f.attackCooldown;
+        nearest.hp -= f.damage * SETTINGS.damageMul;
+        attackEffect(nearest.root.position.add(new BABYLON.Vector3(0,1.6,0)));
+        playHitSound();
+        const pct = Math.max(0, nearest.hp/nearest.maxHp);
+        nearest.hpMat.diffuseTexture.dispose();
+        nearest.hpMat.diffuseTexture = makeHealthBarTexture(pct);
+        nearest.hpMat.diffuseTexture.hasAlpha = true;
+        if (nearest.hp <= 0 && nearest.alive){
+          f.entry.kills++;
+          killFighter(nearest);
+        }
+      }
+    }
+
+    // keep inside arena
+    const p = f.root.position;
+    const r = Math.sqrt(p.x*p.x + p.z*p.z);
+    if (r > arenaR-0.6){
+      const scale = (arenaR-0.6)/r;
+      p.x *= scale; p.z *= scale;
+    }
+  });
+});
+
+// ---- Fernsteuerung ueber den lokalen Server (Kontrollpanel -> Viewer) ----
+function handleCommand(cmd){
+  ensureAudio();
+  switch(cmd.type){
+    case "spawn": spawnFighter({ name: cmd.name, image: cmd.image }); break;
+    case "clear": clearArena(); break;
+    case "settings": Object.assign(SETTINGS, cmd.values||{}); break;
+    case "toggleLeaderboard":
+      leaderboardEnabled = !!cmd.enabled;
+      document.getElementById("leaderboard").style.display = leaderboardEnabled ? "block" : "none";
+      if (leaderboardEnabled) renderLeaderboard();
+      break;
+  }
+}
+
+try {
+  const evtSource = new EventSource("/api/events");
+  evtSource.onmessage = (e)=>{
+    try { handleCommand(JSON.parse(e.data)); } catch(err){}
+  };
+} catch(err){
+  console.warn("Kein Server verbunden - Viewer laeuft ohne Fernsteuerung.", err);
+}
+
+// erster Klick irgendwo auf der Seite schaltet Ton frei (Browser-Regel)
+document.addEventListener("click", ensureAudio, { once: true });
+
+// Arena startet leer - Kaempfer kommen ausschliesslich ueber das Kontrollpanel rein
+
+engine.runRenderLoop(()=>scene.render());
+window.addEventListener("resize", ()=>engine.resize());
+</script>
+</body>
+</html>

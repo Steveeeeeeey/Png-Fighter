@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PNG Fighter — Kontrollpanel</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070a12; --panel:#0d1220; --line:#1f2a44; --gold:#f2c14e;
+    --text:#e8ecf7; --sub:#7c8aad;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;min-height:100vh;}
+  .wrap{max-width:480px;margin:0 auto;padding:24px 18px 60px;}
+  h1{font-family:'Orbitron',sans-serif;font-size:20px;color:var(--gold);letter-spacing:.03em;margin:0 0 4px;}
+  .status{font-size:13px;color:var(--sub);margin-bottom:20px;}
+  .status.ok{color:#3ee6a0;} .status.err{color:#ff4d5e;}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px;}
+  section h2{font-size:14px;color:var(--sub);text-transform:none;margin:0 0 12px;font-weight:600;}
+  .row{display:flex;gap:10px;margin-bottom:10px;}
+  button{
+    font-family:'Rajdhani',sans-serif;font-weight:700;font-size:15px;
+    background:linear-gradient(180deg,#1a2338,#121a2c);color:var(--text);
+    border:1px solid var(--line);border-radius:7px;padding:12px 14px;
+    cursor:pointer;flex:1;transition:transform .08s ease, border-color .15s ease;
+  }
+  button:active{transform:scale(.96);}
+  button.danger:hover{border-color:#ff4d5e;}
+  button.toggle.on{border-color:#3ee6a0;color:#3ee6a0;}
+  label{display:block;font-size:13px;color:var(--sub);margin-bottom:6px;}
+  .sliderRow{margin-bottom:16px;}
+  .sliderRow:last-child{margin-bottom:0;}
+  input[type=range]{width:100%;accent-color:var(--gold);}
+  input[type=text], input[type=file]{
+    width:100%;box-sizing:border-box;font-family:'Rajdhani',sans-serif;font-size:14px;
+    background:#0a0e18;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px 10px;
+  }
+  input[type=checkbox]{accent-color:var(--gold);width:16px;height:16px;}
+  form label{margin-bottom:6px;}
+  .val{float:right;color:var(--text);}
+  .rosterItem{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);}
+  .rosterItem img{width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+  .rosterItem .rName{flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rosterItem button{flex:none;padding:6px 9px;font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PNG FIGHTER — KONTROLLE</h1>
+  <div class="status" id="status">verbinde…</div>
+
+  <section>
+    <h2>Spawnen</h2>
+    <div class="row">
+      <button onclick="spawn()">+ Kämpfer spawnen</button>
+    </div>
+    <div class="row">
+      <button id="autoBtn" class="toggle" onclick="toggleAuto()">Auto-Spawn: aus</button>
+      <button class="danger" onclick="send({type:'clear'})">Arena leeren</button>
+    </div>
+    <div class="row">
+      <button id="lbBtn" class="toggle" onclick="toggleLeaderboard()">Rangliste: aus</button>
+    </div>
+    <div class="sliderRow">
+      <label>Auto-Spawn-Intervall <span class="val" id="intervalVal">4.0s</span></label>
+      <input type="range" id="interval" min="1" max="10" step="0.5" value="4" oninput="onIntervalChange()">
+    </div>
+  </section>
+
+  <section>
+    <h2>YouTube-Profil hinzufügen</h2>
+    <div class="sliderRow">
+      <label>YouTube Data API Key</label>
+      <input type="text" id="ytKey" placeholder="AIza…">
+    </div>
+    <div class="sliderRow">
+      <label>Kanal-ID oder @Handle</label>
+      <input type="text" id="ytQuery" placeholder="UCxxxxxxxxxxxxxxxxxxxxxx oder @kanalname">
+    </div>
+    <div class="row">
+      <button onclick="fetchYoutube()">Abrufen &amp; speichern</button>
+    </div>
+    <div id="ytStatus" style="font-size:12.5px;color:var(--sub);margin-top:2px;"></div>
+  </section>
+
+  <section>
+    <h2>Eigenes Profil speichern (z. B. fiktive Charaktere)</h2>
+    <form id="customForm">
+      <div class="sliderRow">
+        <label>Name</label>
+        <input type="text" id="customName" placeholder="z. B. Twitch-Name oder Charaktername" maxlength="20">
+      </div>
+      <div class="sliderRow">
+        <label>Profilbild</label>
+        <input type="file" id="customImage" accept="image/*">
+      </div>
+      <div class="row" style="margin-bottom:12px;">
+        <label style="display:flex;align-items:center;gap:6px;flex:1;margin:0;">
+          <input type="checkbox" id="customRound" checked> Bild automatisch rund zuschneiden
+        </label>
+      </div>
+      <div class="row">
+        <button type="submit">Speichern &amp; spawnen</button>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Gespeicherte Profile</h2>
+    <div id="roster"></div>
+  </section>
+
+  <section>
+    <h2>Kampf-Einstellungen</h2>
+    <div class="sliderRow">
+      <label>Tempo <span class="val" id="speedVal">1.0×</span></label>
+      <input type="range" id="speed" min="0.4" max="2.5" step="0.1" value="1" oninput="onSettingsChange()">
+    </div>
+    <div class="sliderRow">
+      <label>Schaden <span class="val" id="dmgVal">1.0×</span></label>
+      <input type="range" id="dmg" min="0.4" max="2.5" step="0.1" value="1" oninput="onSettingsChange()">
+    </div>
+    <div class="sliderRow">
+      <label>Erkennungsreichweite <span class="val" id="detectVal">4.2</span></label>
+      <input type="range" id="detect" min="2" max="8" step="0.2" value="4.2" oninput="onSettingsChange()">
+    </div>
+    <div class="sliderRow">
+      <label>Angriffsreichweite <span class="val" id="rangeVal">1.6</span></label>
+      <input type="range" id="range" min="0.8" max="3" step="0.1" value="1.6" oninput="onSettingsChange()">
+    </div>
+  </section>
+</div>
+
+<script>
+async function send(action){
+  try{
+    const res = await fetch("/api/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action)
+    });
+    const data = await res.json();
+    const st = document.getElementById("status");
+    st.textContent = data.viewers > 0 ? `verbunden · ${data.viewers} Viewer aktiv` : "verbunden · kein Viewer offen";
+    st.className = "status " + (data.viewers>0 ? "ok" : "");
+  } catch(err){
+    const st = document.getElementById("status");
+    st.textContent = "kein Kontakt zum Server";
+    st.className = "status err";
+  }
+}
+
+function spawn(){ send({type:"spawn"}); }
+
+// Bild auf einen runden, transparenten Ausschnitt zuschneiden.
+// Nimmt entweder ein File-Objekt (Upload) oder eine Bild-Quelle (Data-URL) entgegen.
+function loadImage(source){
+  return new Promise((resolve, reject) => {
+    if (source instanceof File){
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(source);
+    } else {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = source;
+    }
+  });
+}
+
+async function cropToCircle(source, size){
+  const img = await loadImage(source);
+  const canvas = document.createElement("canvas");
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const side = Math.min(img.width, img.height);
+  const sx = (img.width - side)/2, sy = (img.height - side)/2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(size/2, size/2, size/2 - 4, 0, Math.PI*2);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+  ctx.restore();
+  return canvas.toDataURL("image/png");
+}
+
+function fileToDataUrl(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById("customForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById("customName").value.trim();
+  const fileInput = document.getElementById("customImage");
+  const round = document.getElementById("customRound").checked;
+  let image = null;
+  if (fileInput.files && fileInput.files[0]){
+    try { image = round ? await cropToCircle(fileInput.files[0], 220) : await fileToDataUrl(fileInput.files[0]); }
+    catch(err){ /* Bild fehlerhaft -> ohne Bild spawnen */ }
+  }
+  const name = nameInput || null;
+  if (name || image){
+    const roster = loadRoster();
+    roster.push({ name: name || `Profil ${roster.length+1}`, image });
+    saveRoster(roster);
+    renderRoster();
+  }
+  send({ type:"spawn", name: name || undefined, image: image || undefined });
+  e.target.reset();
+  document.getElementById("customRound").checked = true;
+});
+
+let autoOn = false;
+let autoTimer = null;
+function toggleAuto(){
+  autoOn = !autoOn;
+  const btn = document.getElementById("autoBtn");
+  btn.classList.toggle("on", autoOn);
+  btn.textContent = "Auto-Spawn: " + (autoOn ? "an" : "aus");
+  if (autoOn){
+    scheduleAutoSpawn();
+  } else if (autoTimer){
+    clearTimeout(autoTimer); autoTimer = null;
+  }
+}
+
+function autoSpawnOnce(){
+  const roster = loadRoster();
+  if (roster.length && Math.random() < 0.5){
+    const r = roster[Math.floor(Math.random()*roster.length)];
+    send({ type:"spawn", name:r.name, image:r.image });
+  } else {
+    spawn();
+  }
+}
+
+function scheduleAutoSpawn(){
+  if (!autoOn) return;
+  autoSpawnOnce();
+  const intervalMs = parseFloat(document.getElementById("interval").value) * 1000;
+  autoTimer = setTimeout(scheduleAutoSpawn, Math.max(500, intervalMs || 4000));
+}
+
+let leaderboardOn = false;
+function toggleLeaderboard(){
+  leaderboardOn = !leaderboardOn;
+  const btn = document.getElementById("lbBtn");
+  btn.classList.toggle("on", leaderboardOn);
+  btn.textContent = "Rangliste: " + (leaderboardOn ? "an" : "aus");
+  send({type:"toggleLeaderboard", enabled: leaderboardOn});
+}
+
+function onIntervalChange(){
+  const v = parseFloat(document.getElementById("interval").value);
+  document.getElementById("intervalVal").textContent = v.toFixed(1) + "s";
+}
+
+function onSettingsChange(){
+  const speed = parseFloat(document.getElementById("speed").value);
+  const dmg = parseFloat(document.getElementById("dmg").value);
+  const detect = parseFloat(document.getElementById("detect").value);
+  const range = parseFloat(document.getElementById("range").value);
+  document.getElementById("speedVal").textContent = speed.toFixed(1) + "×";
+  document.getElementById("dmgVal").textContent = dmg.toFixed(1) + "×";
+  document.getElementById("detectVal").textContent = detect.toFixed(1);
+  document.getElementById("rangeVal").textContent = range.toFixed(1);
+  send({ type:"settings", values:{ speedMul:speed, damageMul:dmg, detectRange:detect, attackRange:range } });
+}
+
+// ---- YouTube-Profile: Abruf ueber den lokalen Server + gespeichertes Roster ----
+const ytKeyInput = document.getElementById("ytKey");
+ytKeyInput.value = localStorage.getItem("pngFighterYtKey") || "";
+ytKeyInput.addEventListener("change", () => localStorage.setItem("pngFighterYtKey", ytKeyInput.value.trim()));
+
+function loadRoster(){
+  try { return JSON.parse(localStorage.getItem("pngFighterRoster") || "[]"); }
+  catch(e){ return []; }
+}
+function saveRoster(roster){ localStorage.setItem("pngFighterRoster", JSON.stringify(roster)); }
+
+function renderRoster(){
+  const roster = loadRoster();
+  const el = document.getElementById("roster");
+  if (!roster.length){ el.innerHTML = `<div style="font-size:12.5px;color:var(--sub);">Noch keine gespeicherten Profile.</div>`; return; }
+  el.innerHTML = roster.map((r,i) => `
+    <div class="rosterItem">
+      <img src="${r.image || ''}" alt="" onerror="this.style.visibility='hidden'">
+      <span class="rName">${r.name.replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</span>
+      <button onclick="spawnFromRoster(${i})">Spawnen</button>
+      <button class="danger" onclick="removeFromRoster(${i})">✕</button>
+    </div>`).join("");
+}
+
+function spawnFromRoster(i){
+  const roster = loadRoster();
+  const r = roster[i];
+  if (!r) return;
+  send({ type:"spawn", name:r.name, image:r.image });
+}
+
+function removeFromRoster(i){
+  const roster = loadRoster();
+  roster.splice(i,1);
+  saveRoster(roster);
+  renderRoster();
+}
+
+async function fetchYoutube(){
+  const key = ytKeyInput.value.trim();
+  const query = document.getElementById("ytQuery").value.trim();
+  const statusEl = document.getElementById("ytStatus");
+  if (!key || !query){
+    statusEl.textContent = "Bitte API-Key und Kanal-ID/Handle eingeben.";
+    statusEl.className = "status err";
+    return;
+  }
+  localStorage.setItem("pngFighterYtKey", key);
+  statusEl.textContent = "lade…";
+  statusEl.className = "status";
+  try {
+    const res = await fetch(`/api/youtube?key=${encodeURIComponent(key)}&query=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    if (!data.ok){
+      statusEl.textContent = data.error || "Abruf fehlgeschlagen.";
+      statusEl.className = "status err";
+      return;
+    }
+    const roster = loadRoster();
+    let image = data.image;
+    try { image = await cropToCircle(data.image, 220); } catch(err){ /* falls Zuschnitt scheitert: Originalbild verwenden */ }
+    roster.push({ name: data.name, image });
+    saveRoster(roster);
+    renderRoster();
+    statusEl.textContent = `„${data.name}" gespeichert.`;
+    statusEl.className = "status ok";
+    document.getElementById("ytQuery").value = "";
+  } catch(err){
+    statusEl.textContent = "Kein Kontakt zum Server.";
+    statusEl.className = "status err";
+  }
+}
+
+renderRoster();
+
+// initialer Verbindungscheck
+send({type:"ping"});
+</script>
+</body>
+</html>
