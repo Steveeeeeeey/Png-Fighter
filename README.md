@@ -71,7 +71,7 @@ Name und Profilbild werden abgerufen und lokal für die weitere Verwendung gespe
 
 Einen API-Key kannst du in der [Google Cloud Console](https://console.cloud.google.com/) erstellen. Aktiviere dafür die **YouTube Data API v3**.
 
-> **Sicherheit:** Veröffentliche deinen API-Key nicht im Repository. Auch lokal im Browser gespeicherte Schlüssel sind nicht vollständig vor anderen Personen geschützt, die Zugriff auf dein Gerät oder Browserprofil haben.
+
 
 ## 🔊 Sound
 
